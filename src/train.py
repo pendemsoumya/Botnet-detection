@@ -1,90 +1,128 @@
-"""
-Main training script for botnet detection models.
-Orchestrates the complete pipeline: data loading → preprocessing → training → evaluation.
-"""
+"""Training pipeline for botnet detection models."""
 import sys
 import os
+import logging
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+import pandas as pd
 from data_loader import load_dataset, get_dataset_info
 from preprocessing import DataPreprocessor
 from models import DefaultDecisionTree, BOGPDecisionTree, SVMClassifier, CNNClassifier
 from utils import (
     calculate_metrics, plot_confusion_matrix_and_roc,
     plot_class_distribution, plot_protocol_distribution,
-    plot_protocol_attack_relationship, plot_pca_imbalance,
+    plot_protocol_attack_relationship,
     plot_algorithm_comparison, create_results_table, save_results_to_file
 )
+
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+logger = logging.getLogger(__name__)
 
 
 def run_training_pipeline(dataset_path="data/UNSW_2018_IoT_Botnet_Full5pc_4.csv",
                           show_visualizations=True,
-                          save_results=True):
+                          save_results=True,
+                          sample_size=None):
     """
-    Execute complete training and evaluation pipeline.
+    Execute training and evaluation pipeline.
     
     Args:
-        dataset_path (str): Path to the dataset CSV file
-        show_visualizations (bool): Whether to display plots
-        save_results (bool): Whether to save results to files
+        dataset_path: Path to dataset CSV
+        show_visualizations: Generate plots
+        save_results: Save results to disk
+        sample_size: Limit dataset size for memory efficiency
     """
-    print("="*80)
-    print(" IoT BOTNET DETECTION - TRAINING PIPELINE")
-    print("="*80)
     
-    # Step 1: Load dataset
-    print("\n[STEP 1] Loading Dataset")
-    print("-" * 80)
+    # Load dataset
     try:
         dataset = load_dataset(dataset_path)
+        
+        if sample_size and sample_size < len(dataset):
+            logger.info(f"Sampling {sample_size} records from {len(dataset)}")
+            normal = dataset[dataset['attack'] == 0]
+            attack = dataset[dataset['attack'] == 1].sample(
+                n=sample_size - len(normal), random_state=42
+            )
+            dataset = pd.concat([normal, attack]).sample(frac=1, random_state=42).reset_index(drop=True)
+        
         get_dataset_info(dataset)
     except FileNotFoundError as e:
-        print(f"\nERROR: {e}")
+        logger.error(f"Dataset error: {e}")
         return
     
-    # Step 2: Exploratory Data Analysis
+    # EDA
     if show_visualizations:
-        print("\n[STEP 2] Exploratory Data Analysis")
-        print("-" * 80)
-        
-        print("Visualizing class distribution...")
-        plot_class_distribution(dataset, "Original Class Distribution (Before SMOTE)")
-        
-        print("Checking for missing values...")
-        null_count = dataset.isnull().sum().sum()
-        print(f"Total missing values: {null_count}")
-        
-        print("Visualizing protocol distribution...")
+        logger.info("Generating exploratory visualizations")
+        plot_class_distribution(dataset, "Class Distribution (Before SMOTE)")
         plot_protocol_distribution(dataset)
-        
-        print("Analyzing protocol-attack relationship...")
         plot_protocol_attack_relationship(dataset)
     
-    # Step 3: Data Preprocessing
-    print("\n[STEP 3] Data Preprocessing")
-    print("-" * 80)
+    # Preprocessing
+    logger.info("Preprocessing data")
     preprocessor = DataPreprocessor()
     X_train, X_test, y_train, y_test = preprocessor.prepare_data(dataset, test_size=0.2)
     
-    # Visualize dataset imbalance using PCA
-    if show_visualizations:
-        print("\nVisualizing class imbalance with PCA...")
-        # Use a sample for visualization (full dataset is too large)
-        sample_size = min(10000, len(dataset))
-        dataset_sample = dataset.sample(n=sample_size, random_state=42)
-        Y_sample = dataset_sample['attack'].values
-        X_sample = dataset_sample.drop(['attack'], axis=1).values
-        plot_pca_imbalance(X_sample, Y_sample)
-    
-    # Step 4: Model Training and Evaluation
-    print("\n[STEP 4] Model Training and Evaluation")
-    print("-" * 80)
-    
+    # Train models
+    logger.info("Training models")
     results = []
     
-    # 4.1: Default Decision Tree
-    print("\n[4.1] Default Decision Tree")
-    print("-" * 40)
+    # Decision Tree
+    logger.info("Training Decision Tree (default)")
+    dt = DefaultDecisionTree()
+    dt.train(X_train, y_train)
+    results.append(calculate_metrics("Default Decision Tree", y_test, dt.predict(X_test)))
+    if show_visualizations:
+        plot_confusion_matrix_and_roc("Default Decision Tree", y_test, dt.predict(X_test),
+                                     "results/dt_default_evaluation.png" if save_results else None)
+    
+    # BOGP Decision Tree
+    logger.info("Training Decision Tree (BOGP-optimized)")
+    bogp = BOGPDecisionTree()
+    bogp.optimize_hyperparameters(X_train, y_train, init_points=5, n_iter=2)
+    bogp.train(X_train, y_train)
+    results.append(calculate_metrics("BOGP Optimized Decision Tree", y_test, bogp.predict(X_test)))
+    if show_visualizations:
+        plot_confusion_matrix_and_roc("BOGP Optimized Decision Tree", y_test, bogp.predict(X_test),
+                                     "results/dt_bogp_evaluation.png" if save_results else None)
+    
+    # SVM
+    logger.info("Training SVM")
+    svm_model = SVMClassifier(training_limit=50)
+    svm_model.train(X_train, y_train)
+    results.append(calculate_metrics("SVM Algorithm", y_test, svm_model.predict(X_test)))
+    if show_visualizations:
+        plot_confusion_matrix_and_roc("SVM Algorithm", y_test, svm_model.predict(X_test),
+                                     "results/svm_evaluation.png" if save_results else None)
+    
+    # CNN
+    logger.info("Training CNN")
+    cnn = CNNClassifier(model_path="models/cnn_weights.hdf5", history_path="models/cnn_history.pckl")
+    cnn.train(X_train, y_train, X_test, y_test, epochs=5, batch_size=32)
+    results.append(calculate_metrics("Extension CNN", y_test, cnn.predict(X_test)))
+    if show_visualizations:
+        plot_confusion_matrix_and_roc("Extension CNN", y_test, cnn.predict(X_test),
+                                     "results/cnn_evaluation.png" if save_results else None)
+    
+    # Results
+    results_df = create_results_table(results)
+    logger.info(f"\n{results_df.to_string(index=False)}")
+    
+    if show_visualizations:
+        plot_algorithm_comparison(results, "results/algorithm_comparison.png" if save_results else None)
+    
+    if save_results:
+        save_results_to_file(results_df, "results/performance_metrics.csv")
+    
+    best = results_df.loc[results_df['Accuracy (%)'].idxmax()]
+    logger.info(f"\nBest model: {best['Algorithm']} (Accuracy: {best['Accuracy (%)']}%)")
+
+
+if __name__ == "__main__":
+    run_training_pipeline(
+        dataset_path="data/UNSW_2018_IoT_Botnet_Full5pc_4.csv",
+        show_visualizations=True,
+        save_results=True
+    )
     dt_model = DefaultDecisionTree()
     dt_model.train(X_train, y_train)
     dt_predictions = dt_model.predict(X_test)

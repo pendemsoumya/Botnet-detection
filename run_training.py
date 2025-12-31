@@ -1,153 +1,63 @@
 #!/usr/bin/env python3
-"""
-Entry point script for IoT Botnet Detection project.
-Handles dataset download and runs the complete training pipeline.
-"""
+"""Training pipeline entry point for IoT Botnet Detection."""
 import os
 import sys
-import urllib.request
-import zipfile
+import logging
 from pathlib import Path
 
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
 
-def download_dataset():
-    """
-    Download UNSW 2018 IoT Botnet Dataset.
-    
-    The dataset is available from the UNSW Canberra Cyber research repository.
-    Note: This function provides instructions for manual download as the dataset
-    requires agreeing to terms of use.
-    """
+
+def check_dataset():
+    """Verify dataset file exists."""
     dataset_path = "data/UNSW_2018_IoT_Botnet_Full5pc_4.csv"
     
     if os.path.exists(dataset_path):
-        print(f"✓ Dataset found at {dataset_path}")
         return True
     
-    print("\n" + "="*80)
-    print(" DATASET DOWNLOAD REQUIRED")
-    print("="*80)
-    print("\nThe UNSW 2018 IoT Botnet Dataset is required for training.")
-    print("\nDataset Information:")
-    print("  Name: UNSW_2018_IoT_Botnet_Full5pc_4.csv")
-    print("  Size: ~668,522 records")
-    print("  Features: 46 columns (network traffic features)")
-    print("  Classes: Normal (0) and Attack (1)")
-    
-    print("\n" + "-"*80)
-    print("DOWNLOAD OPTIONS:")
-    print("-"*80)
-    
-    print("\n1. Official UNSW Source (Recommended):")
-    print("   https://research.unsw.edu.au/projects/bot-iot-dataset")
-    print("   https://cloudstor.aarnet.edu.au/plus/s/umT99TnxvbpkkoE")
-    
-    print("\n2. Alternative Sources:")
-    print("   - Kaggle: https://www.kaggle.com/datasets/piyushagni5/unsw-nb15-and-bot-iot-datasets")
-    print("   - UCI Machine Learning Repository (if available)")
-    
-    print("\n" + "-"*80)
-    print("MANUAL DOWNLOAD INSTRUCTIONS:")
-    print("-"*80)
-    print("1. Visit one of the URLs above")
-    print("2. Download the dataset file (may require registration)")
-    print("3. Extract if compressed")
-    print("4. Place 'UNSW_2018_IoT_Botnet_Full5pc_4.csv' in the 'data/' directory")
-    print("5. Run this script again")
-    
-    print("\n" + "="*80)
-    
-    # Check if user wants to provide custom path
-    response = input("\nDo you have the dataset file already? (yes/no): ").strip().lower()
-    
-    if response in ['yes', 'y']:
-        custom_path = input("Enter the full path to the CSV file: ").strip()
-        if os.path.exists(custom_path):
-            import shutil
-            shutil.copy(custom_path, dataset_path)
-            print(f"✓ Dataset copied to {dataset_path}")
-            return True
-        else:
-            print(f"✗ File not found: {custom_path}")
-            return False
-    
+    logger.error(f"Dataset not found: {dataset_path}")
+    logger.info("Download from: https://research.unsw.edu.au/projects/bot-iot-dataset")
     return False
 
 
 def check_dependencies():
-    """Check if required Python packages are installed."""
-    print("\n" + "="*80)
-    print(" CHECKING DEPENDENCIES")
-    print("="*80)
+    """Verify required packages are installed."""
+    required = ['pandas', 'numpy', 'sklearn', 'imblearn', 'keras', 'tensorflow', 'bayes_opt']
+    missing = []
     
-    required_packages = [
-        'pandas', 'numpy', 'matplotlib', 'seaborn',
-        'sklearn', 'imblearn', 'keras', 'tensorflow',
-        'bayes_opt'
-    ]
-    
-    missing_packages = []
-    
-    for package in required_packages:
+    for pkg in required:
         try:
-            __import__(package if package != 'sklearn' else 'sklearn')
-            print(f"✓ {package}")
+            __import__(pkg if pkg != 'sklearn' else 'sklearn')
         except ImportError:
-            print(f"✗ {package} (missing)")
-            missing_packages.append(package)
+            missing.append(pkg)
     
-    if missing_packages:
-        print("\n" + "-"*80)
-        print("MISSING PACKAGES DETECTED")
-        print("-"*80)
-        print("Please install missing packages using:")
-        print(f"  pip install {' '.join(missing_packages)}")
-        print("\nOr install all requirements:")
-        print("  pip install -r requirements.txt")
+    if missing:
+        logger.error(f"Missing packages: {', '.join(missing)}")
+        logger.info("Install with: pip install -r requirements.txt")
         return False
     
-    print("\n✓ All dependencies installed")
     return True
 
 
-def create_directories():
-    """Create necessary directories if they don't exist."""
-    directories = ['data', 'models', 'results', 'notebooks']
-    
-    for directory in directories:
+def setup_directories():
+    """Create required directories."""
+    for directory in ['data', 'models', 'results', 'notebooks']:
         Path(directory).mkdir(parents=True, exist_ok=True)
-    
-    print("✓ Directories checked/created")
 
 
 def main():
-    """Main execution function."""
-    print("\n" + "="*80)
-    print(" IoT BOTNET DETECTION - TRAINING SYSTEM")
-    print(" College Project - Machine Learning Based Network Security")
-    print("="*80)
+    """Execute training pipeline."""
+    logger.info("Starting botnet detection training")
     
-    # Step 1: Create directories
-    print("\n[1] Setting up directories...")
-    create_directories()
+    setup_directories()
     
-    # Step 2: Check dependencies
-    print("\n[2] Checking dependencies...")
     if not check_dependencies():
-        print("\n✗ Please install missing dependencies and run again")
         sys.exit(1)
     
-    # Step 3: Check/download dataset
-    print("\n[3] Checking dataset...")
-    if not download_dataset():
-        print("\n✗ Dataset not available. Please download and try again")
+    if not check_dataset():
         sys.exit(1)
     
-    # Step 4: Run training pipeline
-    print("\n[4] Starting training pipeline...")
-    print("="*80)
-    
-    # Import and run training
     sys.path.append('src')
     from train import run_training_pipeline
     
@@ -155,22 +65,14 @@ def main():
         run_training_pipeline(
             dataset_path="data/UNSW_2018_IoT_Botnet_Full5pc_4.csv",
             show_visualizations=True,
-            save_results=True
+            save_results=True,
+            sample_size=50000
         )
-        
-        print("\n" + "="*80)
-        print(" TRAINING COMPLETED SUCCESSFULLY")
-        print("="*80)
-        print("\nResults saved in:")
-        print("  - results/performance_metrics.csv")
-        print("  - results/*.png (evaluation plots)")
-        print("  - models/cnn_weights.hdf5 (trained CNN model)")
-        print("\nYou can now review the results and present to your manager!")
+        logger.info("Training completed successfully")
+        logger.info("Results saved to: results/")
         
     except Exception as e:
-        print(f"\n✗ Error during training: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Training failed: {e}", exc_info=True)
         sys.exit(1)
 
 
