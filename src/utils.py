@@ -71,9 +71,18 @@ def plot_confusion_matrix_and_roc(algorithm_name, y_true, y_pred, save_path=None
 
 def plot_class_distribution(dataset, title="Class Distribution", save_path=None):
     """Plot class distribution pie chart."""
-    labels, counts = np.unique(dataset['attack'].ravel(), return_counts=True)
+    labels, counts = np.unique(dataset['attack'].to_numpy().ravel(), return_counts=True)
+    display_labels = []
+    for label in labels.tolist():
+        if label == 0:
+            display_labels.append("Normal")
+        elif label == 1:
+            display_labels.append("Attack")
+        else:
+            display_labels.append(str(label))
+
     plt.figure(figsize=(6, 6))
-    plt.pie(counts, labels=['Normal', 'Attack'], autopct='%1.1f%%',
+    plt.pie(counts, labels=display_labels, autopct='%1.1f%%',
             colors=sns.color_palette("Set2"), startangle=90)
     plt.title(title)
     plt.tight_layout()

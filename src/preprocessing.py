@@ -56,7 +56,7 @@ class DataPreprocessor:
         dataset = self.drop_irrelevant_columns(dataset)
         dataset = self.encode_categorical_features(dataset)
         
-        Y = dataset['attack'].ravel()
+        Y = dataset['attack'].to_numpy().ravel()
         X = dataset.drop('attack', axis=1).values
         
         # Shuffle
